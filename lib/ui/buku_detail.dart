@@ -15,22 +15,84 @@ class BukuDetail extends StatefulWidget {
 }
 
 class _BukuDetailState extends State<BukuDetail> {
+  bool _isDeleting = false;
   
   // Fungsi Hapus Data
   void deleteBuku(int id) async {
-    // Panggil API Delete
-    final response = await http.delete(Uri.parse(ApiUrl.deleteBuku(id)));
-    var data = json.decode(response.body);
-
-    if(data['code'] == 200) {
-      // Jika berhasil, kembali ke halaman list
-      Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (context) => const BukuPage()));
-    } else {
-       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Gagal menghapus data")),
+    setState(() {
+      _isDeleting = true;
+    });
+    
+    try {
+      // Panggil API Delete dengan headers CORS-friendly
+      final response = await http.delete(
+        Uri.parse(ApiUrl.deleteBuku(id)),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Request timeout - periksa koneksi server backend');
+        },
       );
+
+      if (response.statusCode == 200) {
+        try {
+          var data = json.decode(response.body);
+          if (data['code'] == 200 || data['status'] == 'success') {
+            // Jika berhasil, kembali ke halaman list
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const BukuPage()),
+              );
+            }
+          } else {
+            _showErrorDialog('Gagal menghapus data: ${data['message'] ?? "Unknown error"}');
+          }
+        } catch (e) {
+          _showErrorDialog('Error parsing response: $e');
+        }
+      } else {
+        _showErrorDialog('Server error: ${response.statusCode} - ${response.reasonPhrase}');
+      }
+    } on Exception catch (e) {
+      String errorMsg = e.toString();
+      if (errorMsg.contains('CORS') || errorMsg.contains('Failed to fetch')) {
+        _showErrorDialog(
+          'CORS Error: Server backend belum dikonfigurasi untuk menerima request dari aplikasi ini.\n\n'
+          'Solusi:\n'
+          '1. Hubungi admin backend untuk enable CORS\n'
+          '2. Atau run backend di localhost untuk development'
+        );
+      } else {
+        _showErrorDialog('Error: $errorMsg');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+      }
     }
+  }
+  
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Error'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          )
+        ],
+      ),
+    );
   }
 
   void confirmHapus() {
@@ -38,15 +100,19 @@ class _BukuDetailState extends State<BukuDetail> {
       content: const Text("Yakin ingin menghapus data ini?"),
       actions: [
         OutlinedButton(
-          child: const Text("Ya"),
-          onPressed: () {
+          child: _isDeleting ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ) : const Text("Ya"),
+          onPressed: _isDeleting ? null : () {
             // Jalankan fungsi hapus
             deleteBuku(widget.buku!.id!);
           },
         ),
         OutlinedButton(
           child: const Text("Batal"),
-          onPressed: () => Navigator.pop(context),
+          onPressed: _isDeleting ? null : () => Navigator.pop(context),
         )
       ],
     );

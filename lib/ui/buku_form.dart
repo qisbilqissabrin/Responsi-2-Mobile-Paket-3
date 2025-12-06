@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:responsi_2_paket_3_h1d023002/model/buku.dart';
 import 'package:responsi_2_paket_3_h1d023002/ui/buku_page.dart';
 import 'package:responsi_2_paket_3_h1d023002/helper/api_url.dart'; // Import Helper
@@ -68,29 +69,94 @@ class _BukuFormState extends State<BukuForm> {
     };
 
     try {
+      final headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+
       if (widget.buku == null) {
         // Mode Create: Panggil API Create
-        await http.post(Uri.parse(ApiUrl.createBuku), body: body);
+        final response = await http.post(
+          Uri.parse(ApiUrl.createBuku),
+          headers: headers,
+          body: jsonEncode(body),
+        ).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            throw Exception('Request timeout - periksa koneksi server backend');
+          },
+        );
+        
+        if (response.statusCode != 200 && response.statusCode != 201) {
+          throw Exception('Server error: ${response.statusCode}');
+        }
       } else {
         // Mode Update: Panggil API Update dengan ID
-        await http.put(Uri.parse(ApiUrl.updateBuku(widget.buku!.id!)), body: body);
+        final response = await http.put(
+          Uri.parse(ApiUrl.updateBuku(widget.buku!.id!)),
+          headers: headers,
+          body: jsonEncode(body),
+        ).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            throw Exception('Request timeout - periksa koneksi server backend');
+          },
+        );
+        
+        if (response.statusCode != 200) {
+          throw Exception('Server error: ${response.statusCode}');
+        }
       }
       
       // Jika berhasil, kembali ke list
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const BukuPage()),
-        (route) => false,
-      );
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const BukuPage()),
+          (route) => false,
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Terjadi kesalahan: $e")),
-      );
+      String errorMsg = e.toString();
+      String displayMsg = 'Terjadi kesalahan';
+      
+      if (errorMsg.contains('CORS') || errorMsg.contains('Failed to fetch')) {
+        displayMsg = 'CORS Error: Server backend belum dikonfigurasi CORS.\n'
+            'Minta admin untuk enable CORS di backend.';
+      } else if (errorMsg.contains('timeout')) {
+        displayMsg = 'Request timeout: Server tidak merespons. Periksa koneksi.';
+      } else if (errorMsg.contains('Server error')) {
+        displayMsg = errorMsg;
+      } else {
+        displayMsg = 'Error: $errorMsg';
+      }
+      
+      if (mounted) {
+        _showErrorDialog(displayMsg);
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
+  }
+  
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Error'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          )
+        ],
+      ),
+    );
   }
 
   @override
